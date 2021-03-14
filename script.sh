@@ -19,7 +19,6 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 PATH=$PATH:/sbin:/usr/sbin
-which ip
 ip=$(which ip)
 
 if [ "$#" -eq 1 ]; then
