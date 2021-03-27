@@ -1,15 +1,5 @@
 #!/bin/bash
 
-# 1. Download the image (tested with: https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2
-# 2. Add keys:
-#    sudo modprobe nbd
-#    sudo qemu-nbd -c /dev/nbd0 debian-9.9.0-openstack-arm64.qcow2
-#    sudo mount /dev/nbd0p2 /mnt
-#    ssh-add -L > /mnt/root/.ssh/authorized_keys
-#    sudo umount /mnt
-#    sudo qemu-nbd -d /dev/nbd0
-# 3. Run script
-
 set -e
 
 if [ "$EUID" -ne 0 ]; then
@@ -64,9 +54,48 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-set -- "${PARAM_POSITIONAL[@]}" # restore positional parameters
+# restore positional parameters
+set -- "${PARAM_POSITIONAL[@]}"
 
 qemu_args=()
+
+### Helper functions ###
+function get_dhcp() {
+  tcpdump 2>/dev/null -i $1 -Uvvn "((ether host $2) and (udp port 67 or udp port 68))" | grep --line-buffered 'Your-IP' >>/dev/shm/dhcp_address
+}
+
+function wait_for_ssh() {
+  SECONDS=0
+  while [ "$SECONDS" -lt "$1" ]; do
+    ips_list="$(sed -nE 's/^[[:space:]]*Your-IP ([0-9]{1,3}(\.[0-9]{1,3}){3})$/\1/p' </dev/shm/dhcp_address)"
+    if [ -n "$ips_list" ]; then
+      unique_ip="$(sort -u <<<$ips_list)"
+      if [ "$(wc -l <<<$unique_ip)" -eq 1 ] && ping >/dev/null -qc1 "$unique_ip"; then
+        [ "$(ssh -i ./vm_rsa -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=4 root@$unique_ip echo 'OK')" = 'OK' ] && echo $unique_ip && exit 0
+      else
+        echo >&2 "Multiples ips have been found"
+        exit 1
+      fi
+    fi
+    sleep 1
+  done
+  echo >&2 "SSH timeout"
+  exit 1
+}
+
+function generate_image() {
+  wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O /tmp/debian.qcow2
+  [ -f "./vm_rsa" ] || (ssh-keygen -f ./vm_rsa -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" ./vm_rsa ./vm_rsa.pub)
+
+  modprobe nbd
+  qemu-nbd -c /dev/nbd0 /tmp/debian.qcow2
+  rm -rf /tmp/debian && mkdir -p /tmp/debian
+  while ! mount 2>/dev/null /dev/nbd0p2 /tmp/debian; do sleep 1; done
+  mkdir -p /tmp/debian/root/.ssh
+  cat ./vm_rsa.pub >>/tmp/debian/root/.ssh/authorized_keys
+  umount /tmp/debian
+  qemu-nbd >/dev/null -d /dev/nbd0
+}
 
 ### Default arguments ###
 function setup_default() {
@@ -86,16 +115,15 @@ function setup_default() {
 
 ### Image setup ###
 function setup_image() {
-  if [ "${#PARAM_POSITIONAL[@]}" -ne 1 ]; then
-    echo >&2 "Invalid argument, use: $0 [options] <image>"
-    exit 1
+  if [ "${#PARAM_POSITIONAL[@]}" -eq 1 ]; then
+    DEFAULT_IMAGE="${PARAM_POSITIONAL[0]}"
+    # Make a copy of image
+    USED_IMAGE="/tmp/$(basename $DEFAULT_IMAGE)"
+    cp -f $DEFAULT_IMAGE $USED_IMAGE
+  else
+    generate_image
+    USED_IMAGE="/tmp/debian.qcow2"
   fi
-
-  DEFAULT_IMAGE="${PARAM_POSITIONAL[0]}"
-
-  # Make a copy of image
-  USED_IMAGE="/tmp/$(basename $DEFAULT_IMAGE)"
-  cp -f $DEFAULT_IMAGE $USED_IMAGE
 
   qemu_args+=(
     -drive if=none,file=$USED_IMAGE,id=hd0
@@ -162,14 +190,28 @@ function main() {
   ### Start QEMU ###
   if $PARAM_DAEMON_QEMU; then
     # initrd ?
+
+    # Begins to filter DHCP packets
+    get_dhcp $DEFAULT_BRIDGE $DEFAULT_MAC &
+    GET_DHCP_PID=$!
     qemu-system-aarch64 </dev/null >out.log 2>err.log "${qemu_args[@]}" &
-    echo "Write some infos, waiting for qemu to stop"
+    MAX_SSH_UPTIME=120
+    if ssh_ip=$(wait_for_ssh $MAX_SSH_UPTIME); then
+      echo "Linux ready, you can ssh with"
+      echo "ssh -i $(pwd)/vm_rsa root@$ssh_ip"
+    else
+      echo "Failed to connect by ssh in $MAX_SSH_UPTIME"
+    fi
+    kill "$GET_DHCP_PID"
+
+    echo "Waiting for the qemu to stop ..."
     wait
   else
     qemu-system-aarch64 "${qemu_args[@]}"
   fi
 
   ### Cleanup ###
+  echo "Qemu stopping"
   echo "Cleanup"
   ip 2>/dev/null link delete $DEFAULT_BRIDGE || true
   ip 2>/dev/null link delete $DEFAULT_TAP || true
