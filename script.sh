@@ -8,7 +8,27 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 PATH=$PATH:/sbin:/usr/sbin
-ip=$(which ip)
+dependencies=(
+  dhclient
+  ip
+  iptables
+  modprobe
+  qemu-nbd
+  qemu-system-aarch64
+  tcpdump
+  wget
+)
+function check_dependencies() {
+  local all_installed=true
+  for dependency in ${dependencies[@]}; do
+    [[ $(type -t $dependency) = "alias" ]] && unalias $dependancy
+    if ! command -v $dependency &>/dev/null ]; then
+      >&2 echo "$dependency command not found"
+      all_installed=false
+    fi
+  done
+  "$all_installed" || exit 1
+}; check_dependencies
 
 PARAM_DAEMON=false
 PARAM_DAEMON_QEMU=false
