@@ -32,6 +32,8 @@ function check_dependencies() {
 
 PARAM_DAEMON=false
 PARAM_DAEMON_QEMU=false
+PARAM_PUBLIC_KEY=./vm_rsa.pub
+PARAM_PRIVATE_KEY=./vm_rsa
 
 ### Argument parsing ###
 POSITIONAL=()
@@ -64,8 +66,17 @@ while [[ $# -gt 0 ]]; do
     DEFAULT_IFACE=$2
     shift 2
     ;;
+  --keys)
+    PARAM_PRIVATE_KEY=$2
+    PARAM_PUBLIC_KEY="$2.pub"
+    shift 2
+    ;;
   --public-key)
     PARAM_PUBLIC_KEY=$2
+    shift 2
+    ;;
+  --public-key)
+    PARAM_PRIVATE_KEY=$2
     shift 2
     ;;
   --save)
@@ -95,7 +106,7 @@ function wait_for_ssh() {
     if [ -n "$ips_list" ]; then
       unique_ip="$(sort -u <<<$ips_list)"
       if [ "$(wc -l <<<$unique_ip)" -eq 1 ] && ping >/dev/null -qc1 "$unique_ip"; then
-        [ "$(ssh -i ./vm_rsa -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=4 root@$unique_ip echo 'OK')" = 'OK' ] && echo $unique_ip && exit 0
+        [ "$(ssh -i $PARAM_PRIVATE_KEY -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=4 root@$unique_ip echo 'OK')" = 'OK' ] && echo $unique_ip && exit 0
       else
         echo >&2 "Multiples ips have been found"
         exit 1
@@ -110,14 +121,14 @@ function wait_for_ssh() {
 function generate_image() {
   echo "Downloading image ..."
   wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O /tmp/debian.qcow2
-  [ -f "./vm_rsa" ] || (ssh-keygen -f ./vm_rsa -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" ./vm_rsa ./vm_rsa.pub)
+  [ -f "$PARAM_PUBLIC_KEY" ] || (ssh-keygen -f $PARAM_PRIVATE_KEY -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" "$PARAM_PUBLIC_KEY" "$PARAM_PRIVATE_KEY")
 
   modprobe nbd
   qemu-nbd -c /dev/nbd0 /tmp/debian.qcow2
   rm -rf /tmp/debian && mkdir -p /tmp/debian
   while ! mount 2>/dev/null /dev/nbd0p2 /tmp/debian; do sleep 1; done
   mkdir -p /tmp/debian/root/.ssh
-  cat ./vm_rsa.pub >>/tmp/debian/root/.ssh/authorized_keys
+  cat $PARAM_PUBLIC_KEY >>/tmp/debian/root/.ssh/authorized_keys
   umount /tmp/debian
   qemu-nbd >/dev/null -d /dev/nbd0
 }
@@ -224,7 +235,7 @@ function main() {
     MAX_SSH_UPTIME=120
     if ssh_ip=$(wait_for_ssh $MAX_SSH_UPTIME); then
       echo "Linux ready, you can ssh with"
-      echo "ssh -i $(pwd)/vm_rsa root@$ssh_ip"
+      echo "ssh -i $PARAM_PRIVATE_KEY root@$ssh_ip"
     else
       echo "Failed to connect by ssh in $MAX_SSH_UPTIME"
     fi
