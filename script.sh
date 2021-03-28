@@ -101,6 +101,10 @@ function get_dhcp() {
   tcpdump 2>/dev/null -i $1 -Uvvn "((ether host $2) and (udp port 67 or udp port 68))" | grep --line-buffered 'Your-IP' >>/dev/shm/dhcp_address
 }
 
+function send_ssh_command() {
+  ssh -i "$PARAM_PRIVATE_KEY" -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=3 "root@$1" ${@:2}
+}
+
 function wait_for_ssh() {
   SECONDS=0
   while [ "$SECONDS" -lt "$1" ]; do
@@ -108,13 +112,13 @@ function wait_for_ssh() {
     if [ -n "$ips_list" ]; then
       unique_ip="$(sort -u <<<$ips_list)"
       if [ "$(wc -l <<<$unique_ip)" -eq 1 ] && ping >/dev/null -qc1 "$unique_ip"; then
-        [ "$(ssh -i $PARAM_PRIVATE_KEY -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=4 root@$unique_ip echo 'OK')" = 'OK' ] && echo $unique_ip && exit 0
+        [ "$(send_ssh_command $unique_ip echo 'OK')" = 'OK' ] && echo $unique_ip && exit 0
       else
         echo >&2 "Multiples ips have been found"
         exit 1
       fi
     fi
-    sleep 1
+    sleep 5
   done
   echo >&2 "SSH timeout"
   exit 1
