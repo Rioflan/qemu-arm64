@@ -14,4 +14,3 @@
 Options:
 - Help menu
 - Don't copy image
-- Save the copy image

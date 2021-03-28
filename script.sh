@@ -34,6 +34,7 @@ PARAM_DAEMON=false
 PARAM_DAEMON_QEMU=false
 PARAM_PUBLIC_KEY=./vm_rsa.pub
 PARAM_PRIVATE_KEY=./vm_rsa
+PARAM_SAVE_PATH="/tmp/generated.qcow2"
 
 ### Argument parsing ###
 POSITIONAL=()
@@ -79,9 +80,9 @@ while [[ $# -gt 0 ]]; do
     PARAM_PRIVATE_KEY=$2
     shift 2
     ;;
-  --save)
-    PARAM_SAVE=true
-    shift
+  --save-path)
+    PARAM_SAVE_PATH=$2
+    shift 2
     ;;
   *)
     PARAM_POSITIONAL+=("$1")
@@ -120,11 +121,11 @@ function wait_for_ssh() {
 
 function generate_image() {
   echo "Downloading image ..."
-  wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O /tmp/debian.qcow2
+  wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O $PARAM_SAVE_PATH
   [ -f "$PARAM_PUBLIC_KEY" ] || (ssh-keygen -f $PARAM_PRIVATE_KEY -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" "$PARAM_PUBLIC_KEY" "$PARAM_PRIVATE_KEY")
 
   modprobe nbd
-  qemu-nbd -c /dev/nbd0 /tmp/debian.qcow2
+  qemu-nbd -c /dev/nbd0 $PARAM_SAVE_PATH
   rm -rf /tmp/debian && mkdir -p /tmp/debian
   while ! mount 2>/dev/null /dev/nbd0p2 /tmp/debian; do sleep 1; done
   mkdir -p /tmp/debian/root/.ssh
@@ -158,7 +159,7 @@ function setup_image() {
     cp -f $DEFAULT_IMAGE $USED_IMAGE
   else
     generate_image
-    USED_IMAGE="/tmp/debian.qcow2"
+    USED_IMAGE=$PARAM_SAVE_PATH
   fi
 
   qemu_args+=(
