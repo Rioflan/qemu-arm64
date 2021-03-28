@@ -59,13 +59,17 @@ while [[ $# -gt 0 ]]; do
     PARAM_CORES=$2
     shift 2
     ;;
-  -b=* | --bridge=*)
+-b | --bridge)
     PARAM_BRIDGE=true
-    DEFAULT_IFACE="${key#*=}"
-    shift
+    DEFAULT_IFACE=$2
+    shift 2
     ;;
-  -b | --bridge)
-    PARAM_BRIDGE=true
+  --public-key)
+    PARAM_PUBLIC_KEY=$2
+    shift 2
+    ;;
+  --save)
+    PARAM_SAVE=true
     shift
     ;;
   *)
@@ -163,7 +167,7 @@ function setup_network() {
       DEFAULT_IFACE="${switch[0]}"
     else
       echo >&2 "Can't determine interface: $switch"
-      echo >&2 "Please specify it with $0 --bridge=<nic to bridge with>"
+      echo >&2 "Please specify it with $0 --bridge <nic to bridge with>"
       exit 1
     fi
   fi
