@@ -260,8 +260,8 @@ _trap INT 2 15
 
 function main() {
   setup_default
-  setup_network
   setup_image
+  setup_network
 
   echo "Strating qemu ..."
   ### Start QEMU ###
