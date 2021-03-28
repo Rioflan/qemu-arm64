@@ -104,6 +104,7 @@ function wait_for_ssh() {
 }
 
 function generate_image() {
+  echo "Downloading image ..."
   wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O /tmp/debian.qcow2
   [ -f "./vm_rsa" ] || (ssh-keygen -f ./vm_rsa -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" ./vm_rsa ./vm_rsa.pub)
 
@@ -207,6 +208,7 @@ function main() {
   setup_image
   setup_network
 
+  echo "Strating qemu ..."
   ### Start QEMU ###
   if $PARAM_DAEMON_QEMU; then
     # initrd ?
