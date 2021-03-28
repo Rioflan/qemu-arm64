@@ -97,6 +97,7 @@ qemu_args=()
 
 ### Helper functions ###
 function get_dhcp() {
+  echo '' >/dev/shm/dhcp_address
   tcpdump 2>/dev/null -i $1 -Uvvn "((ether host $2) and (udp port 67 or udp port 68))" | grep --line-buffered 'Your-IP' >>/dev/shm/dhcp_address
 }
 
