@@ -19,16 +19,18 @@ dependencies=(
   wget
 )
 function check_dependencies() {
+
   local all_installed=true
   for dependency in ${dependencies[@]}; do
     [[ $(type -t $dependency) = "alias" ]] && unalias $dependancy
-    if ! command -v $dependency &>/dev/null ]; then
-      >&2 echo "$dependency command not found"
+    if ! command -v $dependency &>/dev/null; then
+      echo >&2 "$dependency command not found"
       all_installed=false
     fi
   done
   "$all_installed" || exit 1
-}; check_dependencies
+}
+check_dependencies
 
 PARAM_DAEMON=false
 PARAM_DAEMON_QEMU=false
@@ -62,7 +64,7 @@ while [[ $# -gt 0 ]]; do
     PARAM_CORES=$2
     shift 2
     ;;
--b | --bridge)
+  -b | --bridge)
     PARAM_BRIDGE=true
     DEFAULT_IFACE=$2
     shift 2
@@ -224,10 +226,42 @@ function setup_network() {
   )
 }
 
+function cleanup() {
+  echo "Cleaning environment..."
+  SECONDS=0
+  while kill &>/dev/null -0 $QEMU_PID && [ "$SECONDS" -lt 30 ]; do sleep 1; done
+  if kill &>/dev/null -0 $QEMU_PID; then
+    kill -9 $QEMU_PID
+    echo >&2 "Killing Qemu: $QEMU_PID"
+  else
+    echo >&2 "Qemu stopped gracefully"
+  fi
+  ip &>/dev/null link delete $DEFAULT_BRIDGE || true
+  ip &>/dev/null link delete $DEFAULT_TAP || true
+  dhclient "$DEFAULT_IFACE" || true
+}
+
+function handle_signal() {
+  echo "Handle signal: ${@}"
+  # Handling signal
+  kill &>/dev/null $GET_DHCP_PID || true
+  [ -z "$QEMU_IP" ] || send_ssh_command $QEMU_IP poweroff || true
+  cleanup
+  exit "$((128 + $1))"
+}
+
+_trap() {
+  for sig in "$@"; do
+    trap "handle_signal $sig" "$sig"
+  done
+}
+
+_trap INT 2 15
+
 function main() {
   setup_default
-  setup_image
   setup_network
+  setup_image
 
   echo "Strating qemu ..."
   ### Start QEMU ###
@@ -238,27 +272,23 @@ function main() {
     get_dhcp $DEFAULT_BRIDGE $DEFAULT_MAC &
     GET_DHCP_PID=$!
     qemu-system-aarch64 </dev/null >out.log 2>err.log "${qemu_args[@]}" &
+    QEMU_PID=$!
     MAX_SSH_UPTIME=120
-    if ssh_ip=$(wait_for_ssh $MAX_SSH_UPTIME); then
-      echo "Linux ready, you can ssh with"
-      echo "ssh -i $PARAM_PRIVATE_KEY root@$ssh_ip"
+    if QEMU_IP=$(wait_for_ssh $MAX_SSH_UPTIME); then
+      >&1 echo "Linux ready, you can ssh with"
+      >&2 echo "ssh -i $PARAM_PRIVATE_KEY root@$QEMU_IP"
     else
       echo "Failed to connect by ssh in $MAX_SSH_UPTIME"
     fi
     kill "$GET_DHCP_PID"
 
-    echo "Waiting for the qemu to stop ..."
+    >&2 echo "Waiting for the qemu to stop ..."
     wait
   else
     qemu-system-aarch64 "${qemu_args[@]}"
   fi
 
-  ### Cleanup ###
-  echo "Qemu stopping"
-  echo "Cleanup"
-  ip 2>/dev/null link delete $DEFAULT_BRIDGE || true
-  ip 2>/dev/null link delete $DEFAULT_TAP || true
-  dhclient "$DEFAULT_IFACE"
+  cleanup
 }
 
 if $PARAM_DAEMON; then
