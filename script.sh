@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     shift
     ;;
   --mac)
-    PARAM_MAC=$2
+    DEFAULT_MAC=$2
     shift 2
     ;;
   -m | --memory)
@@ -191,8 +191,7 @@ function setup_network() {
     fi
   fi
 
-  if ! [ "$PARAM_MAC" ]; then
-    #DEFAULT_MAC="${PARAM_MAC:-08:00:27:4D:AF:2F}"
+  if ! [ "$DEFAULT_MAC" ]; then
     printf -v DEFAULT_MAC "52:54:%02x:%02x:%02x:%02x" $(($RANDOM & 0xff)) $(($RANDOM & 0xff)) $(($RANDOM & 0xff)) $(($RANDOM & 0xff))
   fi
 
@@ -264,6 +263,7 @@ function main() {
   setup_network
 
   echo "Strating qemu ..."
+  echo "${qemu_args[@]}"
   ### Start QEMU ###
   if $PARAM_DAEMON_QEMU; then
     # initrd ?
