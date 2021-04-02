@@ -145,7 +145,7 @@ function generate_image() {
 function setup_default() {
   DEFAULT_NB_CORES="${PARAM_CORES:-4}"
   DEFAULT_MEMORY="${PARAM_MEMORY:-8G}"
-  DEFAULT_BIOS=/usr/share/qemu-efi-aarch64/QEMU_EFI.fd
+  DEFAULT_BIOS=files/QEMU_EFI.fd
 
   qemu_args+=(
     -M virt
