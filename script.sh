@@ -179,9 +179,9 @@ function setup_image() {
 function setup_network() {
   # Find default interface to bridge if no one specified
   if $PARAM_BRIDGE && ! [ "$DEFAULT_IFACE" ]; then
-    switch=$(ip route ls | awk '/^default / {
+    declare -a switch=($(ip route ls | awk '/^default / {
         for(i=0;i<NF;i++) { if ($i == "dev") { print $(i+1); next; } }
-        }')
+        }' | sort -u))
     if [ "${#switch[@]}" -eq 1 ] && [ "${switch[0]}" ]; then
       DEFAULT_IFACE="${switch[0]}"
     else
