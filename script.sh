@@ -34,9 +34,14 @@ check_dependencies
 
 PARAM_DAEMON=false
 PARAM_DAEMON_QEMU=false
+PARAM_SAVE=false
 PARAM_PUBLIC_KEY=./vm_rsa.pub
 PARAM_PRIVATE_KEY=./vm_rsa
 PARAM_SAVE_PATH="/tmp/generated.qcow2"
+
+CLOUD_INIT_IMAGE=files/ubuntu/cloud-init.iso
+# List of files that will be added to cloud-init
+CLOUD_INIT_FILES="files/ubuntu/user-data"
 
 ### Argument parsing ###
 POSITIONAL=()
@@ -82,8 +87,16 @@ while [[ $# -gt 0 ]]; do
     PARAM_PRIVATE_KEY=$2
     shift 2
     ;;
+  -s | --save)
+    PARAM_SAVE=true
+    shift
+    ;;
   --save-path)
     PARAM_SAVE_PATH=$2
+    shift 2
+    ;;
+  --resize)
+    PARAM_RESIZE=$2
     shift 2
     ;;
   *)
@@ -127,18 +140,12 @@ function wait_for_ssh() {
 }
 
 function generate_image() {
-  echo "Downloading image ..."
-  wget -q --show-progress https://cdimage.debian.org/cdimage/openstack/current-10/debian-10-openstack-arm64.qcow2 -O $PARAM_SAVE_PATH
-  [ -f "$PARAM_PUBLIC_KEY" ] || (ssh-keygen -f $PARAM_PRIVATE_KEY -b 4096 -t rsa -N '' && [ -z "$SUDO_USER" ] || chown "$SUDO_USER" "$PARAM_PUBLIC_KEY" "$PARAM_PRIVATE_KEY")
-
-  modprobe nbd
-  qemu-nbd -c /dev/nbd0 $PARAM_SAVE_PATH
-  rm -rf /tmp/debian && mkdir -p /tmp/debian
-  while ! mount 2>/dev/null /dev/nbd0p2 /tmp/debian; do sleep 1; done
-  mkdir -p /tmp/debian/root/.ssh
-  cat $PARAM_PUBLIC_KEY >>/tmp/debian/root/.ssh/authorized_keys
-  umount /tmp/debian
-  qemu-nbd >/dev/null -d /dev/nbd0
+  echo "Downloading images ..."
+  UBUNTU_RELEASE=https://cloud-images.ubuntu.com/releases/groovy/release-20210325/
+  wget -q --show-progress $UBUNTU_RELEASE/ubuntu-20.10-server-cloudimg-arm64.img -O $PARAM_SAVE_PATH
+  [ -n "$PARAM_RESIZE" ] && echo "Resize image to $PARAM_RESIZE" && qemu-img resize $PARAM_SAVE_PATH $PARAM_RESIZE
+  echo "Creating cloud config iso ..."
+  cloud-localds $CLOUD_INIT_IMAGE $CLOUD_INIT_FILES
 }
 
 ### Default arguments ###
@@ -149,7 +156,7 @@ function setup_default() {
 
   qemu_args+=(
     -M virt
-    -cpu max
+    -cpu cortex-a72
     -m $DEFAULT_MEMORY
     -smp $DEFAULT_NB_CORES
     -bios $DEFAULT_BIOS
@@ -170,8 +177,8 @@ function setup_image() {
   fi
 
   qemu_args+=(
-    -drive if=none,file=$USED_IMAGE,id=hd0
-    -device virtio-blk-device,drive=hd0
+    -drive if=virtio,file=$USED_IMAGE
+    -drive media=cdrom,file=$CLOUD_INIT_IMAGE
   )
 }
 
@@ -238,6 +245,10 @@ function cleanup() {
   ip &>/dev/null link delete $DEFAULT_BRIDGE || true
   ip &>/dev/null link delete $DEFAULT_TAP || true
   dhclient "$DEFAULT_IFACE" || true
+  if $PARAM_SAVE; then
+    cp $USED_IMAGE $DEFAULT_IMAGE
+  fi
+  echo >&2 "Everything stopped gracefully !"
 }
 
 function handle_signal() {
@@ -273,7 +284,7 @@ function main() {
     GET_DHCP_PID=$!
     qemu-system-aarch64 </dev/null >out.log 2>err.log "${qemu_args[@]}" &
     QEMU_PID=$!
-    MAX_SSH_UPTIME=120
+    MAX_SSH_UPTIME=300
     if QEMU_IP=$(wait_for_ssh $MAX_SSH_UPTIME); then
       >&1 echo "Linux ready, you can ssh with"
       >&2 echo "ssh -i $PARAM_PRIVATE_KEY root@$QEMU_IP"
