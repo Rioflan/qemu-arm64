@@ -9,7 +9,9 @@ DEFAULT_NB_CORES="${PARAM_CORES:-4}"
 DEFAULT_MEMORY="${PARAM_MEMORY:-8G}"
 DEFAULT_BIOS=files/QEMU_EFI.fd
 
-DEFAULT_IMAGE="saves/docker-builder.qcow2"
+# You can get it with:
+# wget --quiet -qO- https://nextcloud.rioflan.com/index.php/s/soYLQriaX9gN7tK/download/docker-builder.qcow2.tar.gz | tar xzf -
+DEFAULT_IMAGE="docker-builder.qcow2"
 USED_IMAGE="/tmp/generated.qcow2"
 PARAM_RESIZE="+8G"
 
